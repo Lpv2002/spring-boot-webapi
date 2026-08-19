@@ -1,10 +1,5 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# Laboratorio 3 - Integracion de pruebas automatizadas al pipeline
+# Compila -> ejecuta pruebas unitarias (Quality Gate) -> genera cobertura -> publica reportes
 
 name: Java CI with Maven
 
@@ -17,35 +12,81 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  build-and-test:
+    name: Build, Test & Coverage
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 25
+    # ---------- Preparacion ----------
+    - name: Checkout del repositorio
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '25'
+        java-version: '21'
         distribution: 'temurin'
         cache: maven
 
-    - name: Build with Maven
-      ## Uncomment the following line to run build & tests
-      #run: mvn -B package --file pom.xml
-      ## Uncomment the following line to run build without tests option 1
-      run: mvn -B package --file pom.xml -DskipTests
-      ## Uncomment the following line to run build without test option 2
-      #run: ./mvnw --batch-mode compile
+    # ---------- Etapa 1: Compilacion ----------
+    - name: Compilar la aplicacion
+      run: mvn -B clean compile --file pom.xml
 
-    - name: Run tests with Maven
-      #run: ./mvnw --batch-mode test
+    # ---------- Etapa 2: Pruebas unitarias (Quality Gate) ----------
+    # Si alguna prueba falla, Maven devuelve codigo != 0 y el pipeline se detiene aqui.
+    - name: Ejecutar pruebas unitarias
       run: mvn -B test --file pom.xml
 
-    - name: Run Code Coverage with Maven
-      #run: ./mvnw --batch-mode test
-      run: mvn -B test jacoco:report --file pom.xml
+    # ---------- Etapa 3: Cobertura de codigo ----------
+    - name: Generar reporte de cobertura (JaCoCo)
+      if: always()
+      run: mvn -B jacoco:report --file pom.xml
 
-    # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
-    #- name: Update dependency graph
-    #  uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+    # ---------- Etapa 4: Resumen de resultados en los registros ----------
+    - name: Mostrar resumen de pruebas
+      if: always()
+      run: |
+        echo "===== RESULTADO DE LAS PRUEBAS ====="
+        cat target/surefire-reports/*.txt || echo "No se generaron reportes de pruebas"
+        {
+          echo "## Resultado de las pruebas unitarias"
+          echo ""
+          echo '```'
+          grep -h "Tests run" target/surefire-reports/*.txt || echo "sin resultados"
+          echo '```'
+          echo ""
+          echo "## Cobertura de codigo (JaCoCo)"
+          echo ""
+          echo "| Clase | Inst. cubiertas | Inst. no cubiertas | % |"
+          echo "|-------|-----------------|--------------------|---|"
+          tail -n +2 target/site/jacoco/jacoco.csv | awk -F',' \
+            '{miss+=$4; cov+=$5; printf "| %s | %d | %d | %.1f%% |\n", $3, $5, $4, ($4+$5>0 ? $5*100/($4+$5) : 0)} \
+             END {printf "| **TOTAL** | %d | %d | **%.1f%%** |\n", cov, miss, (miss+cov>0 ? cov*100/(miss+cov) : 0)}'
+        } >> $GITHUB_STEP_SUMMARY
+
+    # ---------- Etapa 5: Publicacion de artefactos ----------
+    - name: Publicar reporte de pruebas
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: reporte-pruebas-surefire
+        path: target/surefire-reports/
+        if-no-files-found: warn
+
+    - name: Publicar reporte de cobertura
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: reporte-cobertura-jacoco
+        path: target/site/jacoco/
+        if-no-files-found: warn
+
+    # ---------- Etapa 6: Empaquetado (solo si las pruebas pasaron) ----------
+    - name: Empaquetar aplicacion
+      run: mvn -B package --file pom.xml -DskipTests
+
+    - name: Publicar artefacto JAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: aplicacion-jar
+        path: target/*.jar
