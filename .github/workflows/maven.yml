@@ -29,18 +29,17 @@ jobs:
         cache: maven
 
     # ---------- Etapa 1: Compilacion ----------
-    - name: Compilar la aplicacion
+    - name: Build with Maven
       run: mvn -B clean compile --file pom.xml
 
     # ---------- Etapa 2: Pruebas unitarias (Quality Gate) ----------
-    # Si alguna prueba falla, Maven devuelve codigo != 0 y el pipeline se detiene aqui.
-    - name: Ejecutar pruebas unitarias
+    - name: Run tests with Maven
       run: mvn -B test --file pom.xml
 
     # ---------- Etapa 3: Cobertura de codigo ----------
-    - name: Generar reporte de cobertura (JaCoCo)
+    - name: Run Code Coverage with Maven
       if: always()
-      run: mvn -B jacoco:report --file pom.xml
+      run: mvn -B verify --file pom.xml
 
     # ---------- Etapa 4: Resumen de resultados en los registros ----------
     - name: Mostrar resumen de pruebas
